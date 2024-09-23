@@ -1,0 +1,68 @@
+package main
+
+import (
+	"fmt"
+	"net"
+	"time"
+
+	"github.com/pion/stun"
+)
+
+// GetPublicIP retrieves the public IP and port using a STUN server
+func GetPublicIP(stunServerAddr string) (string, int, error) {
+	// Dial UDP connection to the STUN server
+	conn, err := net.Dial("udp", stunServerAddr)
+	if err != nil {
+		return "", 0, fmt.Errorf("failed to connect to STUN server: %v", err)
+	}
+	defer conn.Close()
+
+	// Build a binding request
+	message := stun.MustBuild(stun.TransactionID, stun.BindingRequest)
+
+	// Send request to STUN server
+	_, err = conn.Write(message.Raw)
+	if err != nil {
+		return "", 0, fmt.Errorf("failed to send request to STUN server: %v", err)
+	}
+
+	// Wait for response
+	buf := make([]byte, 1024)
+	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	n, err := conn.Read(buf)
+	if err != nil {
+		return "", 0, fmt.Errorf("failed to read response from STUN server: %v", err)
+	}
+
+	// Decode the response
+	response := &stun.Message{
+		Raw: buf[:n],
+	}
+	if err := response.Decode(); err != nil {
+		return "", 0, fmt.Errorf("failed to decode STUN response: %v", err)
+	}
+
+	// Extract public IP and port
+	var xorAddr stun.XORMappedAddress
+	if err := xorAddr.GetFrom(response); err != nil {
+		return "", 0, fmt.Errorf("failed to get XORMappedAddress: %v", err)
+	}
+
+	return xorAddr.IP.String(), xorAddr.Port, nil
+}
+
+func main() {
+	// Example: Use Google STUN server
+	stunServerAddr := "stun.l.google.com:19302"
+
+	publicIP, publicPort, err := GetPublicIP(stunServerAddr)
+	if err != nil {
+		fmt.Printf("Error: %v\n", err)
+		return
+	}
+
+	fmt.Printf("Public IP: %s, Public Port: %d\n", publicIP, publicPort)
+
+	// After obtaining IP and port, exchange this with the peer to establish a P2P connection
+	// Example: You can implement a signaling server or use another method to share this information.
+}
