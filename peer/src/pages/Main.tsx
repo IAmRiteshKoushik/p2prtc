@@ -31,11 +31,13 @@ export function Main() {
   }
 
   const getCameraAndStream = (pc: RTCPeerConnection) => {
+    const video = senderRef.current;
     navigator.mediaDevices.getUserMedia({ video: true }).then((stream) => {
-      const video = senderRef;
+      // @ts-ignore
       video.srcObject = stream;
+      // @ts-ignore
       video.play();
-      stream.getTrack().forEach((track) => {
+      stream.getTracks().forEach((track) => {
         pc?.addTrack(track);
       });
     });
@@ -251,10 +253,10 @@ const MessagePop = ({ content }: { content: string }) => {
   );
 }
 
-const FileScreen = () => {
-  return (
-    <div className="dark:bg-muted h-full w-full rounded-lg">
-
-    </div>
-  );
-}
+// const FileScreen = () => {
+//   return (
+//     <div className="dark:bg-muted h-full w-full rounded-lg">
+//
+//     </div>
+//   );
+// }
