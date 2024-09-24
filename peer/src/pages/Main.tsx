@@ -20,7 +20,8 @@ export function Main() {
   const senderRef = useRef(null);
   const receiverRef = useRef(null);
 
-  const setupSendingSocket = () => {
+  // Runs only on initial render
+  useEffect(() => {
     const socket = new WebSocket("ws://localhost:8080/rtc");
     setSignal(socket);
     socket.onopen = () => {
@@ -28,7 +29,16 @@ export function Main() {
         type: "Sender"
       }));
     }
-  }
+    console.log("Connected to signal server");
+
+    // Setting up RTC :: Sender
+    const newPC = new RTCPeerConnection();
+    setSender(newPC);
+
+    // Setting up RTC :: Receiver
+    const recPC = new RTCPeerConnection();
+    setReceiver(recPC);
+  }, []);
 
   const getCameraAndStream = (pc: RTCPeerConnection) => {
     const video = senderRef.current;
@@ -43,23 +53,12 @@ export function Main() {
     });
   }
 
-  const initiateSender = async () => {
+  const initiateSender = () => {
     if (!signal) {
       alert("Signalling server has not been found");
       return;
     }
-
-    signal.onmessage = async (event: any) => {
-      const message = JSON.parse(event.data);
-      if (message.type === "createAnswer") {
-        await sender!.setRemoteDescription(message.sdp);
-      } else if (message.type === "iceCandidate") {
-        sender?.addIceCandidate(message.iceCandidate);
-      }
-    }
-
-    const newPC = new RTCPeerConnection();
-    setSender(newPC);
+    console.log(sender);
     sender!.onicecandidate = (event: any) => {
       if (event.candidate) {
         signal?.send(JSON.stringify({
@@ -69,6 +68,17 @@ export function Main() {
       }
     }
 
+    // Sending info to signal server
+    signal.onmessage = async (event: any) => {
+      const message = JSON.parse(event.data);
+      if (message.type === "createAnswer") {
+        await sender!.setRemoteDescription(message.sdp);
+      } else if (message.type === "iceCandidate") {
+        sender?.addIceCandidate(message.iceCandidate);
+      }
+    }
+
+    // Setting up description
     sender!.onnegotiationneeded = async () => {
       const offer = await sender!.createOffer();
       await sender!.setLocalDescription(offer);
@@ -77,7 +87,7 @@ export function Main() {
         sdp: sender!.localDescription,
       }));
     }
-
+    // Cam access
     getCameraAndStream(sender!);
   }
 
@@ -92,20 +102,22 @@ export function Main() {
   }
 
   const startReceiving = (socket: WebSocket) => {
+    const video = receiverRef.current;
     console.log("Receiving has started");
-    const pc = new RTCPeerConnection();
     // Attaching event handlers
-    pc.ontrack = (event) => {
-      receiverRef.current.srcObject = new MediaStream([event.track]);
-      receiverRef.play();
+    receiver.ontrack = (event) => {
+      // @ts-ignore
+      video.srcObject = new MediaStream([event.track]);
+      // @ts-ignore
+      video.play();
     }
 
     socket.onmessage = (event) => {
       const message = JSON.parse(event.data);
       if (message.type === "createOffer") {
-        pc.setRemoteDescription(message.sdp).then(() => {
-          pc.createAnswer().then((answer) => {
-            pc.setLocalDescription(answer);
+        receiver.setRemoteDescription(message.sdp).then(() => {
+          receiver.createAnswer().then((answer) => {
+            receiver.setLocalDescription(answer);
             socket.send(JSON.stringify({
               type: "createAnswer",
               sdp: answer
@@ -113,7 +125,7 @@ export function Main() {
           });
         });
       } else if (message.type === "iceCandidate") {
-        pc.addIceCandidate(message.candidate);
+        receiver.addIceCandidate(message.candidate);
       }
     }
   }
@@ -130,13 +142,21 @@ export function Main() {
       </div>
 
       {/* MainContent */}
-      <div className="flex m-4 h-4/5">
-        <div className="w-2/5">
+      <div className="flex m-4 h-4/5 gap-x-1">
+        <div className="w-2/5 h-3/4 bg-muted rounded-md p-2">
           {/* Sending Footage */}
+          <div className="text-2xl flex w-full">
+            <p className="flex-1">Host</p>
+            <Button className="flex-none" onClick={initiateSender}>Stream</Button>
+          </div>
           <video ref={senderRef} id="sender" width="400" height="400" />
         </div>
-        <div className="w-2/5">
+        <div className="w-2/5 h-3/4 bg-muted rounded-md p-2">
           {/* Receiving Footage */}
+          <div className="text-2xl flex w-full">
+            <p className="flex-1">Guest</p>
+            <Button className="flex-none" onClick={setupReceivingSocket}>Accept Incoming</Button>
+          </div>
           <video ref={receiverRef} id="receiver" width="400" height="400" />
         </div>
         <div className="w-1/5">
@@ -158,18 +178,6 @@ export function Main() {
   );
 }
 
-interface VideoScreenProp {
-  id: string
-}
-
-const VideoScreen = ({ id }: VideoScreenProp) => {
-  return (
-    <div className="w-full">
-      <video id={id} className="w-full"></video>
-    </div>
-  );
-}
-
 const ChatScreen = () => {
   const [input, setInput] = useState<string>("");
   const [messages, setMessages] = useState<string[]>([]);
@@ -177,33 +185,27 @@ const ChatScreen = () => {
 
   useEffect(() => {
     const socket = new WebSocket("ws://localhost:8080/chat");
-
     // Implement event handlers
     socket.onopen = () => {
       // Send initial connection message
       socket.send(JSON.stringify({ type: "connect" }));
     };
-
     socket.onmessage = (event) => {
       const { content } = JSON.parse(event.data);
       console.log("Message : ", content);
-      setMessages([...messages, content]);
+      setMessages((messages) => [...messages, content]);
       console.log(messages.length);
     }
-
     socket.onerror = (error) => {
       console.error("WebSocket error:", error);
     };
-
     socket.onclose = () => {
       console.log("WebSocket closed");
     }
-
     setWs(socket);
     return () => {
       socket.close();
     }
-
   }, [])
 
   const handleSentMessage = () => {
@@ -211,7 +213,6 @@ const ChatScreen = () => {
     if (ws && msg) {
       const message = { type: "send", content: msg };
       ws.send(JSON.stringify(message));
-      setInput("");
     }
   }
 
@@ -228,7 +229,7 @@ const ChatScreen = () => {
       {/* Input Controls */}
       <div className="flex gap-x-2">
         <Input type="text" placeholder="Your message here"
-          onChange={(e) => setInput(e.target.value)} value={input} />
+          onChange={(e) => setInput(e.target.value)} />
         <Button onClick={handleSentMessage} size="icon">
           <Send />
         </Button>
@@ -238,13 +239,10 @@ const ChatScreen = () => {
       <div>
         {renderMessage()}
       </div>
-
     </div>
   );
 }
 
-
-// TODO: Add a Sender field to identify who sent which message. (enchancement)
 const MessagePop = ({ content }: { content: string }) => {
   return (
     <div className="flex flex-col gap-y-2 dark:bg-background my-1 rounded-md py-1 px-2">
@@ -252,11 +250,3 @@ const MessagePop = ({ content }: { content: string }) => {
     </div>
   );
 }
-
-// const FileScreen = () => {
-//   return (
-//     <div className="dark:bg-muted h-full w-full rounded-lg">
-//
-//     </div>
-//   );
-// }
