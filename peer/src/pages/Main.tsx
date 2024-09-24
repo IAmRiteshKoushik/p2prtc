@@ -130,10 +130,12 @@ export function Main() {
       {/* MainContent */}
       <div className="flex m-4 h-4/5">
         <div className="w-2/5">
-          <VideoScreen id="sender" />
+          {/* Sending Footage */}
+          <video ref={senderRef} id="sender" width="400" height="400" />
         </div>
         <div className="w-2/5">
-          <VideoScreen id="receiver" />
+          {/* Receiving Footage */}
+          <video ref={receiverRef} id="receiver" width="400" height="400" />
         </div>
         <div className="w-1/5">
           <Tabs defaultValue="chat" className="h-4/5">
