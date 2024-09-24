@@ -7,7 +7,7 @@ import {
   TabsTrigger,
 } from "@/components/ui/tabs"
 import { Send } from "lucide-react"
-import { useEffect, useState } from "react"
+import { useEffect, useState, useRef } from "react"
 import { useNavigate } from "react-router-dom"
 
 export function Main() {
@@ -15,6 +15,106 @@ export function Main() {
   const [sender, setSender] = useState<RTCPeerConnection | null>(null);
   const [receiver, setReceiver] = useState<RTCPeerConnection | null>(null);
   const navigate = useNavigate();
+
+  // Reference to element
+  const senderRef = useRef(null);
+  const receiverRef = useRef(null);
+
+  const setupSendingSocket = () => {
+    const socket = new WebSocket("ws://localhost:8080/rtc");
+    setSignal(socket);
+    socket.onopen = () => {
+      socket.send(JSON.stringify({
+        type: "Sender"
+      }));
+    }
+  }
+
+  const getCameraAndStream = (pc: RTCPeerConnection) => {
+    navigator.mediaDevices.getUserMedia({ video: true }).then((stream) => {
+      const video = senderRef;
+      video.srcObject = stream;
+      video.play();
+      stream.getTrack().forEach((track) => {
+        pc?.addTrack(track);
+      });
+    });
+  }
+
+  const initiateSender = async () => {
+    if (!signal) {
+      alert("Signalling server has not been found");
+      return;
+    }
+
+    signal.onmessage = async (event: any) => {
+      const message = JSON.parse(event.data);
+      if (message.type === "createAnswer") {
+        await sender!.setRemoteDescription(message.sdp);
+      } else if (message.type === "iceCandidate") {
+        sender?.addIceCandidate(message.iceCandidate);
+      }
+    }
+
+    const newPC = new RTCPeerConnection();
+    setSender(newPC);
+    sender!.onicecandidate = (event: any) => {
+      if (event.candidate) {
+        signal?.send(JSON.stringify({
+          type: "iceCandidate",
+          candidate: event.candidate
+        }));
+      }
+    }
+
+    sender!.onnegotiationneeded = async () => {
+      const offer = await sender!.createOffer();
+      await sender!.setLocalDescription(offer);
+      signal?.send(JSON.stringify({
+        type: "createOffer",
+        sdp: sender!.localDescription,
+      }));
+    }
+
+    getCameraAndStream(sender!);
+  }
+
+  const setupReceivingSocket = () => {
+    const socket = new WebSocket("ws://localhost:8080/rtc");
+    socket.onopen = () => {
+      socket.send(JSON.stringify({
+        type: "Receiver",
+      }));
+    }
+    startReceiving(socket);
+  }
+
+  const startReceiving = (socket: WebSocket) => {
+    console.log("Receiving has started");
+    const pc = new RTCPeerConnection();
+    // Attaching event handlers
+    pc.ontrack = (event) => {
+      receiverRef.current.srcObject = new MediaStream([event.track]);
+      receiverRef.play();
+    }
+
+    socket.onmessage = (event) => {
+      const message = JSON.parse(event.data);
+      if (message.type === "createOffer") {
+        pc.setRemoteDescription(message.sdp).then(() => {
+          pc.createAnswer().then((answer) => {
+            pc.setLocalDescription(answer);
+            socket.send(JSON.stringify({
+              type: "createAnswer",
+              sdp: answer
+            }));
+          });
+        });
+      } else if (message.type === "iceCandidate") {
+        pc.addIceCandidate(message.candidate);
+      }
+    }
+  }
 
   return (
     <div className="w-screen h-screen">
