@@ -34,14 +34,28 @@ export function Main() {
     // Setting up RTC :: Sender
     const newPC = new RTCPeerConnection();
     setSender(newPC);
+    setReceiver(newPC);
 
     // Setting up RTC :: Receiver
-    const recPC = new RTCPeerConnection();
-    setReceiver(recPC);
+    // const recPC = new RTCPeerConnection();
+    // setReceiver(recPC);
   }, []);
 
   const getCameraAndStream = (pc: RTCPeerConnection) => {
     const video = senderRef.current;
+    navigator.mediaDevices.getUserMedia({ video: true }).then((stream) => {
+      // @ts-ignore
+      video.srcObject = stream;
+      // @ts-ignore
+      video.play();
+      stream.getTracks().forEach((track) => {
+        pc?.addTrack(track);
+      });
+    });
+  }
+
+  const ReceiveCameraAndStream = (pc: RTCPeerConnection) => {
+    const video = receiverRef.current;
     navigator.mediaDevices.getUserMedia({ video: true }).then((stream) => {
       // @ts-ignore
       video.srcObject = stream;
@@ -91,44 +105,82 @@ export function Main() {
     getCameraAndStream(sender!);
   }
 
-  const setupReceivingSocket = () => {
-    const socket = new WebSocket("ws://localhost:8080/rtc");
-    socket.onopen = () => {
-      socket.send(JSON.stringify({
-        type: "Receiver",
-      }));
+  const initiateReceiver = () => {
+    if (!signal) {
+      alert("Signalling server has not been found");
+      return;
     }
-    startReceiving(socket);
-  }
-
-  const startReceiving = (socket: WebSocket) => {
-    const video = receiverRef.current;
-    console.log("Receiving has started");
-    // Attaching event handlers
-    receiver.ontrack = (event) => {
-      // @ts-ignore
-      video.srcObject = new MediaStream([event.track]);
-      // @ts-ignore
-      video.play();
-    }
-
-    socket.onmessage = (event) => {
-      const message = JSON.parse(event.data);
-      if (message.type === "createOffer") {
-        receiver.setRemoteDescription(message.sdp).then(() => {
-          receiver.createAnswer().then((answer) => {
-            receiver.setLocalDescription(answer);
-            socket.send(JSON.stringify({
-              type: "createAnswer",
-              sdp: answer
-            }));
-          });
-        });
-      } else if (message.type === "iceCandidate") {
-        receiver.addIceCandidate(message.candidate);
+    console.log(sender);
+    sender!.onicecandidate = (event: any) => {
+      if (event.candidate) {
+        signal?.send(JSON.stringify({
+          type: "iceCandidate",
+          candidate: event.candidate
+        }));
       }
     }
+
+    // Sending info to signal server
+    signal.onmessage = async (event: any) => {
+      const message = JSON.parse(event.data);
+      if (message.type === "createAnswer") {
+        await sender!.setRemoteDescription(message.sdp);
+      } else if (message.type === "iceCandidate") {
+        sender?.addIceCandidate(message.iceCandidate);
+      }
+    }
+
+    // Setting up description
+    sender!.onnegotiationneeded = async () => {
+      const offer = await sender!.createOffer();
+      await sender!.setLocalDescription(offer);
+      signal?.send(JSON.stringify({
+        type: "createOffer",
+        sdp: sender!.localDescription,
+      }));
+    }
+    // Cam access
+    ReceiveCameraAndStream(sender!);
   }
+
+  // const setupReceivingSocket = () => {
+  //   const socket = new WebSocket("ws://localhost:8080/rtc");
+  //   socket.onopen = () => {
+  //     socket.send(JSON.stringify({
+  //       type: "Receiver",
+  //     }));
+  //   }
+  //   startReceiving(socket);
+  // }
+
+  // const startReceiving = (socket: WebSocket) => {
+  //   const video = receiverRef.current;
+  //   console.log("Receiving has started");
+  //   // Attaching event handlers
+  //   receiver.ontrack = (event) => {
+  //     // @ts-ignore
+  //     video.srcObject = new MediaStream([event.track]);
+  //     // @ts-ignore
+  //     video.play();
+  //   }
+  //
+  //   socket.onmessage = (event) => {
+  //     const message = JSON.parse(event.data);
+  //     if (message.type === "createOffer") {
+  //       receiver.setRemoteDescription(message.sdp).then(() => {
+  //         receiver.createAnswer().then((answer) => {
+  //           receiver.setLocalDescription(answer);
+  //           socket.send(JSON.stringify({
+  //             type: "createAnswer",
+  //             sdp: answer
+  //           }));
+  //         });
+  //       });
+  //     } else if (message.type === "iceCandidate") {
+  //       receiver.addIceCandidate(message.candidate);
+  //     }
+  //   }
+  // }
 
   return (
     <div className="w-screen h-screen">
@@ -155,7 +207,7 @@ export function Main() {
           {/* Receiving Footage */}
           <div className="text-2xl flex w-full">
             <p className="flex-1">Guest</p>
-            <Button className="flex-none" onClick={setupReceivingSocket}>Accept Incoming</Button>
+            <Button className="flex-none" onClick={initiateReceiver}>Accept Incoming</Button>
           </div>
           <video ref={receiverRef} id="receiver" width="400" height="400" />
         </div>

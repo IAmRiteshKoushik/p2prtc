@@ -1,11 +1,14 @@
 import { PrismaClient } from "@prisma/client";
 import express, { Request, Response } from "express";
 import WebSocket, { WebSocketServer } from "ws";
+import cors from "cors";
 
 const prisma = new PrismaClient();
 
 const app = express();
 app.use(express.json());
+app.use(cors());
+
 const server = app.listen(8080, () => console.log("Server connected"));
 
 const wssChat = new WebSocketServer({ noServer: true });
@@ -18,16 +21,18 @@ app.get("/test", (_: Request, res: Response) => {
   });
 });
 
-app.post("/login", (req: Request, res: Response) => {
-  const userExist = prisma.user.findFirst({
+app.post("/login", async (req: Request, res: Response) => {
+  console.log(req.body);
+  const userExist = await prisma.user.findFirst({
     where: {
       email: req.body.email,
       password: req.body.password
     }
   });
-  if (!userExist) return res.status(403).json({
-    message: "Invalid username or password",
-  });
+  console.log(userExist);
+  // if (!userExist) return res.status(403).json({
+  //   message: "Invalid username or password",
+  // });
   return res.status(200).json({
     message: "Successful login",
   });

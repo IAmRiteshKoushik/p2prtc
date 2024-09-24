@@ -28,12 +28,13 @@ export function LoginCard() {
         password: password,
       })
     });
-    const response = await request.json();
+    console.log(request);
 
-    if (response.status === 200) {
+    if (request.status === 200) {
       console.log("Logged In");
       navigate("/main");
     } else {
+      console.log(request.status);
       console.log("Login failed");
     }
   }
